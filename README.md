@@ -111,6 +111,22 @@ const prefixed = custom.withPrefix("_");
 const suffixed = custom.withSuffix("_");
 ```
 
+## Detection
+
+Check if a string matches a case format:
+
+```zig
+casez.is(.snake, "hello_world");  // true
+casez.is(.camel, "helloWorld");   // true
+casez.is(.pascal, "HelloWorld");  // true
+casez.is(.constant, "HELLO_WORLD"); // true
+casez.is(.kebab, "hello-world");  // true
+
+// Works with custom configs including prefix/suffix
+casez.is(.withPrefix(.snake, "_"), "_private");  // true
+casez.is(.camel, "_notCamel");  // false
+```
+
 ## License
 
 MIT

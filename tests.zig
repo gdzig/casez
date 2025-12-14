@@ -133,24 +133,25 @@ test "prefix and suffix" {
 }
 
 test "detection" {
-    try testing.expect(casez.isSnake("hello_world"));
-    try testing.expect(casez.isSnake("_private"));
-    try testing.expect(!casez.isSnake("helloWorld"));
-    try testing.expect(!casez.isSnake("HelloWorld"));
+    try testing.expect(casez.is(.snake, "hello_world"));
+    try testing.expect(!casez.is(.snake, "_private")); // leading underscore requires prefix
+    try testing.expect(casez.is(.withPrefix(.snake, "_"), "_private")); // with prefix it works
+    try testing.expect(!casez.is(.snake, "helloWorld"));
+    try testing.expect(!casez.is(.snake, "HelloWorld"));
 
-    try testing.expect(casez.isCamel("helloWorld"));
-    try testing.expect(!casez.isCamel("HelloWorld"));
-    try testing.expect(!casez.isCamel("hello_world"));
+    try testing.expect(casez.is(.camel, "helloWorld"));
+    try testing.expect(!casez.is(.camel, "HelloWorld"));
+    try testing.expect(!casez.is(.camel, "hello_world"));
 
-    try testing.expect(casez.isPascal("HelloWorld"));
-    try testing.expect(!casez.isPascal("helloWorld"));
-    try testing.expect(!casez.isPascal("hello_world"));
+    try testing.expect(casez.is(.pascal, "HelloWorld"));
+    try testing.expect(!casez.is(.pascal, "helloWorld"));
+    try testing.expect(!casez.is(.pascal, "hello_world"));
 
-    try testing.expect(casez.isConstant("HELLO_WORLD"));
-    try testing.expect(!casez.isConstant("hello_world"));
+    try testing.expect(casez.is(.constant, "HELLO_WORLD"));
+    try testing.expect(!casez.is(.constant, "hello_world"));
 
-    try testing.expect(casez.isKebab("hello-world"));
-    try testing.expect(!casez.isKebab("hello_world"));
+    try testing.expect(casez.is(.kebab, "hello-world"));
+    try testing.expect(!casez.is(.kebab, "hello_world"));
 }
 
 test "bufConvert" {

@@ -368,41 +368,83 @@ pub const Config = struct {
 
 // Detection
 
-pub fn isSnake(input: []const u8) bool {
-    for (input) |c| {
-        if (ascii.isUpper(c)) return false;
-        if (c != '_' and !ascii.isAlphanumeric(c)) return false;
-    }
-    return true;
-}
-
-pub fn isCamel(input: []const u8) bool {
+pub fn is(comptime config: Config, input: []const u8) bool {
     if (input.len == 0) return false;
-    if (ascii.isUpper(input[0])) return false;
-    for (input) |c| if (!ascii.isAlphanumeric(c)) return false;
-    return true;
-}
 
-pub fn isPascal(input: []const u8) bool {
-    if (input.len == 0) return false;
-    if (!ascii.isUpper(input[0])) return false;
-    for (input) |c| if (!ascii.isAlphanumeric(c)) return false;
-    return true;
-}
-
-pub fn isConstant(input: []const u8) bool {
-    for (input) |c| {
-        if (ascii.isLower(c)) return false;
-        if (c != '_' and !ascii.isAlphanumeric(c)) return false;
+    // Check prefix
+    if (config.prefix.len > 0) {
+        if (input.len < config.prefix.len) return false;
+        if (!std.mem.eql(u8, input[0..config.prefix.len], config.prefix)) return false;
     }
-    return true;
-}
 
-pub fn isKebab(input: []const u8) bool {
-    for (input) |c| {
-        if (ascii.isUpper(c)) return false;
-        if (c != '-' and !ascii.isAlphanumeric(c)) return false;
+    // Check suffix
+    if (config.suffix.len > 0) {
+        if (input.len < config.suffix.len) return false;
+        if (!std.mem.eql(u8, input[input.len - config.suffix.len ..], config.suffix)) return false;
     }
+
+    // Get the content between prefix and suffix
+    const content = input[config.prefix.len .. input.len - config.suffix.len];
+    if (content.len == 0) return config.prefix.len > 0 or config.suffix.len > 0;
+
+    // For configs with no delimiter (camel, pascal), check first char and ensure no non-alphanumeric
+    if (config.delimiter.len == 0) {
+        // Check first character matches expected case
+        const first = content[0];
+        if (!ascii.isAlphabetic(first)) return false;
+        switch (config.first) {
+            .lower => if (ascii.isUpper(first)) return false,
+            .upper => if (ascii.isLower(first)) return false,
+            .title => if (ascii.isLower(first)) return false,
+        }
+        // Rest must be alphanumeric only
+        for (content[1..]) |c| {
+            if (!ascii.isAlphanumeric(c)) return false;
+        }
+        return true;
+    }
+
+    // For configs with delimiter, parse words
+    var word_idx: usize = 0;
+    var char_idx: usize = 0;
+    var i: usize = 0;
+
+    while (i < content.len) {
+        const c = content[i];
+
+        // Check for delimiter
+        if (i + config.delimiter.len <= content.len) {
+            if (std.mem.eql(u8, content[i..][0..config.delimiter.len], config.delimiter)) {
+                if (char_idx == 0) return false; // Empty word or leading delimiter
+                word_idx += 1;
+                char_idx = 0;
+                i += config.delimiter.len;
+                continue;
+            }
+        }
+
+        // Determine expected case for this character
+        const expected_case = if (word_idx == 0) config.first else config.rest;
+        const is_first_char = char_idx == 0;
+
+        if (!ascii.isAlphanumeric(c)) return false;
+
+        switch (expected_case) {
+            .lower => if (ascii.isUpper(c)) return false,
+            .upper => if (ascii.isLower(c)) return false,
+            .title => {
+                if (is_first_char) {
+                    if (ascii.isLower(c)) return false;
+                } else {
+                    if (ascii.isUpper(c)) return false;
+                }
+            },
+        }
+
+        char_idx += 1;
+        i += 1;
+    }
+
     return true;
 }
 
