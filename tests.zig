@@ -116,15 +116,20 @@ test "splits dictionary" {
 }
 
 test "prefix and suffix" {
-    const prefixed: Config = comptime .withPrefix(.snake);
+    const prefixed: Config = comptime .withPrefix(.snake, "_");
     try testing.expectEqualStrings("_hello_world", comptimeConvert(prefixed, "helloWorld"));
     try testing.expectEqualStrings("_hello", comptimeConvert(prefixed, "hello"));
 
-    const suffixed: Config = comptime .withSuffix(.snake);
+    const suffixed: Config = comptime .withSuffix(.snake, "_");
     try testing.expectEqualStrings("hello_world_", comptimeConvert(suffixed, "helloWorld"));
 
-    const both: Config = comptime .withPrefix(.withSuffix(.snake));
+    const both: Config = comptime .withPrefix(.withSuffix(.snake, "_"), "_");
     try testing.expectEqualStrings("_hello_world_", comptimeConvert(both, "helloWorld"));
+
+    // Prefix with camel case (for virtual methods like _someMethod)
+    const prefixed_camel: Config = comptime .withPrefix(.camel, "_");
+    try testing.expectEqualStrings("_someMethod", comptimeConvert(prefixed_camel, "some_method"));
+    try testing.expectEqualStrings("_enterTree", comptimeConvert(prefixed_camel, "enter_tree"));
 }
 
 test "detection" {

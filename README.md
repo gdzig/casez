@@ -1,6 +1,8 @@
 # casez
 
-Flexible case conversion library for Zig with comptime and runtime support.
+Flexible case conversion library for Zig with comptime and runtime support. 
+
+This library was created to address the more esoteric case conversion needs of [gdzig](https://github.com/gdzig/gdzig).
 
 ## Usage
 
@@ -80,14 +82,18 @@ comptimeConvert(config, "Vector2D"); // "vector_2d"
 
 ### Prefix and Suffix
 
-Add a leading or trailing delimiter:
+Add a custom prefix or suffix string:
 
 ```zig
-const prefixed: casez.Config = comptime .withPrefix(.snake);
+const prefixed: casez.Config = comptime .withPrefix(.snake, "_");
 comptimeConvert(prefixed, "helloWorld"); // "_hello_world"
 
-const suffixed: casez.Config = comptime .withSuffix(.snake);
+const suffixed: casez.Config = comptime .withSuffix(.snake, "_");
 comptimeConvert(suffixed, "helloWorld"); // "hello_world_"
+
+// Useful for virtual methods: _someMethod from some_method
+const prefixed_camel: casez.Config = comptime .withPrefix(.camel, "_");
+comptimeConvert(prefixed_camel, "some_method"); // "_someMethod"
 ```
 
 ### Helpers
@@ -101,6 +107,10 @@ const custom: casez.Config = comptime .withDictionary(.pascal, .{
     }),
 });
 
-const prefixed = custom.withPrefix();
-const suffixed = custom.withSuffix();
+const prefixed = custom.withPrefix("_");
+const suffixed = custom.withSuffix("_");
 ```
+
+## License
+
+MIT

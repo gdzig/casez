@@ -5,10 +5,8 @@ pub fn comptimeConvert(comptime config: Config, comptime input: []const u8) []co
     comptime var buf: [outputLen(config, words)]u8 = undefined;
     comptime var pos: usize = 0;
 
-    if (config.prefix) {
-        inline for (config.delimiter, 0..) |d, j| buf[pos + j] = d;
-        pos += config.delimiter.len;
-    }
+    inline for (config.prefix, 0..) |p, j| buf[pos + j] = p;
+    pos += config.prefix.len;
 
     inline for (words, 0..) |word, i| {
         if (comptime i > 0) {
@@ -23,10 +21,8 @@ pub fn comptimeConvert(comptime config: Config, comptime input: []const u8) []co
         pos += word.len;
     }
 
-    if (config.suffix) {
-        inline for (config.delimiter, 0..) |d, j| buf[pos + j] = d;
-        pos += config.delimiter.len;
-    }
+    inline for (config.suffix, 0..) |s, j| buf[pos + j] = s;
+    pos += config.suffix.len;
 
     const out = buf;
     return &out;
@@ -70,11 +66,9 @@ pub fn bufConvert(comptime config: Config, buf: []u8, input: []const u8) ?[]u8 {
     // Write output
     var pos: usize = 0;
 
-    if (config.prefix) {
-        if (pos + config.delimiter.len > buf.len) return null;
-        @memcpy(buf[pos..][0..config.delimiter.len], config.delimiter);
-        pos += config.delimiter.len;
-    }
+    if (pos + config.prefix.len > buf.len) return null;
+    @memcpy(buf[pos..][0..config.prefix.len], config.prefix);
+    pos += config.prefix.len;
 
     for (words[0..word_count], 0..) |word, word_idx| {
         if (word_idx > 0) {
@@ -91,19 +85,17 @@ pub fn bufConvert(comptime config: Config, buf: []u8, input: []const u8) ?[]u8 {
         }
     }
 
-    if (config.suffix) {
-        if (pos + config.delimiter.len > buf.len) return null;
-        @memcpy(buf[pos..][0..config.delimiter.len], config.delimiter);
-        pos += config.delimiter.len;
-    }
+    if (pos + config.suffix.len > buf.len) return null;
+    @memcpy(buf[pos..][0..config.suffix.len], config.suffix);
+    pos += config.suffix.len;
 
     return buf[0..pos];
 }
 
 /// Runtime case conversion with allocation.
 pub fn allocConvert(comptime config: Config, allocator: std.mem.Allocator, input: []const u8) ![]u8 {
-    // Worst case: every char becomes a word with delimiter
-    const max_len = input.len + input.len * config.delimiter.len;
+    // Worst case: every char becomes a word with delimiter, plus prefix and suffix
+    const max_len = config.prefix.len + input.len + input.len * config.delimiter.len + config.suffix.len;
     const buf = try allocator.alloc(u8, max_len);
 
     if (bufConvert(config, buf, input)) |result| {
@@ -119,13 +111,12 @@ pub fn allocConvert(comptime config: Config, allocator: std.mem.Allocator, input
 
 /// Length of the final converted string.
 fn outputLen(comptime config: Config, comptime words: []const []const u8) usize {
-    comptime var len: usize = 0;
-    if (config.prefix) len += config.delimiter.len;
+    comptime var len: usize = config.prefix.len;
     for (words, 0..) |word, i| {
         if (i > 0) len += config.delimiter.len;
         len += word.len;
     }
-    if (config.suffix) len += config.delimiter.len;
+    len += config.suffix.len;
     return len;
 }
 
@@ -318,8 +309,8 @@ pub const Config = struct {
     rest: Case,
     acronym: Case,
     delimiter: []const u8,
-    prefix: bool = false,
-    suffix: bool = false,
+    prefix: []const u8 = "",
+    suffix: []const u8 = "",
     dictionary: Dictionary = .empty,
 
     pub const Case = enum { upper, title, lower };
@@ -350,26 +341,26 @@ pub const Config = struct {
         };
     }
 
-    pub fn withPrefix(base: Config) Config {
+    pub fn withPrefix(base: Config, prefix: []const u8) Config {
         return .{
             .first = base.first,
             .rest = base.rest,
             .acronym = base.acronym,
             .delimiter = base.delimiter,
-            .prefix = true,
+            .prefix = prefix,
             .suffix = base.suffix,
             .dictionary = base.dictionary,
         };
     }
 
-    pub fn withSuffix(base: Config) Config {
+    pub fn withSuffix(base: Config, suffix: []const u8) Config {
         return .{
             .first = base.first,
             .rest = base.rest,
             .acronym = base.acronym,
             .delimiter = base.delimiter,
             .prefix = base.prefix,
-            .suffix = true,
+            .suffix = suffix,
             .dictionary = base.dictionary,
         };
     }
