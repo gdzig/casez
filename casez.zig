@@ -1,6 +1,7 @@
 /// Comptime case conversion, returns a comptime string slice.
 pub fn comptimeConvert(comptime config: Config, comptime input: []const u8) []const u8 {
-    const words = comptime expandWords(config, parseWords(input));
+    @setEvalBranchQuota(10_000);
+    const words = comptime expandWords(config, parseWords(config, input));
 
     comptime var buf: [outputLen(config, words)]u8 = undefined;
     comptime var pos: usize = 0;
@@ -30,10 +31,10 @@ pub fn comptimeConvert(comptime config: Config, comptime input: []const u8) []co
 
 /// Runtime case conversion into a provided buffer.
 pub fn bufConvert(comptime config: Config, buf: []u8, input: []const u8) ?[]u8 {
-    var words: [256][]const u8 = undefined;
-    var word_count: usize = 0;
+    var segments: [256][]const u8 = undefined;
+    var segment_count: usize = 0;
 
-    // Parse words
+    // Parse segments (will be split further if all-uppercase)
     var start: usize = 0;
     var i: usize = 0;
     while (i < input.len) : (i += 1) {
@@ -41,26 +42,26 @@ pub fn bufConvert(comptime config: Config, buf: []u8, input: []const u8) ?[]u8 {
 
         if (!ascii.isAlphanumeric(c)) {
             if (i > start) {
-                if (word_count >= words.len) return null;
-                words[word_count] = input[start..i];
-                word_count += 1;
+                if (segment_count >= segments.len) return null;
+                segments[segment_count] = input[start..i];
+                segment_count += 1;
             }
             start = i + 1;
             continue;
         }
 
-        if (i > start and isWordBoundaryRuntime(input, i)) {
-            if (word_count >= words.len) return null;
-            words[word_count] = input[start..i];
-            word_count += 1;
+        if (i > start and isWordBoundaryRuntime(config, input, i)) {
+            if (segment_count >= segments.len) return null;
+            segments[segment_count] = input[start..i];
+            segment_count += 1;
             start = i;
         }
     }
 
     if (input.len > start) {
-        if (word_count >= words.len) return null;
-        words[word_count] = input[start..];
-        word_count += 1;
+        if (segment_count >= segments.len) return null;
+        segments[segment_count] = input[start..];
+        segment_count += 1;
     }
 
     // Write output
@@ -70,18 +71,57 @@ pub fn bufConvert(comptime config: Config, buf: []u8, input: []const u8) ?[]u8 {
     @memcpy(buf[pos..][0..config.prefix.len], config.prefix);
     pos += config.prefix.len;
 
-    for (words[0..word_count], 0..) |word, word_idx| {
-        if (word_idx > 0) {
-            if (pos + config.delimiter.len > buf.len) return null;
-            @memcpy(buf[pos..][0..config.delimiter.len], config.delimiter);
-            pos += config.delimiter.len;
+    var global_word_idx: usize = 0;
+    for (segments[0..segment_count]) |segment| {
+        // Check if segment is all-uppercase
+        var all_upper = true;
+        for (segment) |c| {
+            if (ascii.isAlphabetic(c) and ascii.isLower(c)) {
+                all_upper = false;
+                break;
+            }
         }
 
-        const policy = wordPolicyRuntime(config, word, word_idx);
-        for (word, 0..) |c, char_idx| {
-            if (pos >= buf.len) return null;
-            buf[pos] = applyCaseRuntime(policy, c, char_idx);
-            pos += 1;
+        if (all_upper) {
+            // Split by acronyms
+            var seg_pos: usize = 0;
+            while (seg_pos < segment.len) {
+                const acronym = findAcronymAtInputRuntime(config, segment, seg_pos);
+                const word_len = if (acronym) |a| a.len else segment.len - seg_pos;
+                const word = segment[seg_pos..][0..word_len];
+
+                if (global_word_idx > 0) {
+                    if (pos + config.delimiter.len > buf.len) return null;
+                    @memcpy(buf[pos..][0..config.delimiter.len], config.delimiter);
+                    pos += config.delimiter.len;
+                }
+
+                const policy = wordPolicyRuntime(config, word, global_word_idx);
+                for (word, 0..) |c, char_idx| {
+                    if (pos >= buf.len) return null;
+                    buf[pos] = applyCaseRuntime(policy, c, char_idx);
+                    pos += 1;
+                }
+
+                global_word_idx += 1;
+                seg_pos += word_len;
+            }
+        } else {
+            // Single word
+            if (global_word_idx > 0) {
+                if (pos + config.delimiter.len > buf.len) return null;
+                @memcpy(buf[pos..][0..config.delimiter.len], config.delimiter);
+                pos += config.delimiter.len;
+            }
+
+            const policy = wordPolicyRuntime(config, segment, global_word_idx);
+            for (segment, 0..) |c, char_idx| {
+                if (pos >= buf.len) return null;
+                buf[pos] = applyCaseRuntime(policy, c, char_idx);
+                pos += 1;
+            }
+
+            global_word_idx += 1;
         }
     }
 
@@ -153,14 +193,19 @@ fn wordPolicyRuntime(config: Config, word: []const u8, index: usize) Config.Case
 }
 
 /// Runtime version of isWordBoundary.
-fn isWordBoundaryRuntime(input: []const u8, i: usize) bool {
+fn isWordBoundaryRuntime(comptime config: Config, input: []const u8, i: usize) bool {
     const prev = input[i - 1];
     const curr = input[i];
     const next: ?u8 = if (i + 1 < input.len) input[i + 1] else null;
 
+    // Check if we're inside a known acronym - if so, never split
+    if (isInsideAcronymRuntime(config, input, i)) return false;
+
     if (ascii.isLower(prev) and ascii.isUpper(curr)) return true;
 
     if (ascii.isUpper(prev) and ascii.isUpper(curr)) {
+        // Check if current position starts a known acronym
+        if (findAcronymAtInputRuntime(config, input, i)) |_| return true;
         if (next) |n| if (ascii.isLower(n)) return true;
     }
 
@@ -171,19 +216,81 @@ fn isWordBoundaryRuntime(input: []const u8, i: usize) bool {
     return false;
 }
 
-/// Words after applying splits dictionary and acronym-based splitting.
+/// Runtime version of isInsideAcronym.
+fn isInsideAcronymRuntime(comptime config: Config, input: []const u8, i: usize) bool {
+    for (config.dictionary.acronyms.keys()) |acronym| {
+        const start_min: usize = if (i >= acronym.len) i - acronym.len + 1 else 0;
+        var start: usize = start_min;
+        while (start < i) : (start += 1) {
+            // Only consider acronyms that start at valid word boundaries
+            if (!isValidAcronymStartRuntime(input, start)) continue;
+
+            if (start + acronym.len <= input.len) {
+                var matches = true;
+                for (acronym, 0..) |ac, j| {
+                    if (ascii.toLower(input[start + j]) != ascii.toLower(ac)) {
+                        matches = false;
+                        break;
+                    }
+                }
+                if (matches) return true;
+            }
+        }
+    }
+    return false;
+}
+
+/// Runtime version of isValidAcronymStart.
+fn isValidAcronymStartRuntime(input: []const u8, pos: usize) bool {
+    if (pos == 0) return true;
+
+    const prev = input[pos - 1];
+    const curr = input[pos];
+
+    if (!ascii.isAlphanumeric(prev)) return true;
+    if (ascii.isLower(prev) and ascii.isUpper(curr)) return true;
+    if (ascii.isUpper(prev) and ascii.isUpper(curr)) return true;
+
+    return false;
+}
+
+/// Runtime version of findAcronymAtInput.
+fn findAcronymAtInputRuntime(comptime config: Config, input: []const u8, pos: usize) ?[]const u8 {
+    // Only detect acronyms at valid word boundaries
+    if (!isValidAcronymStartRuntime(input, pos)) return null;
+
+    for (config.dictionary.acronyms.keys()) |acronym| {
+        if (pos + acronym.len <= input.len) {
+            var matches = true;
+            for (acronym, 0..) |ac, j| {
+                if (ascii.toLower(input[pos + j]) != ascii.toLower(ac)) {
+                    matches = false;
+                    break;
+                }
+            }
+            if (matches) return acronym;
+        }
+    }
+    return null;
+}
+
+/// Words after applying splits dictionary.
 fn expandWords(comptime config: Config, comptime words: []const []const u8) []const []const u8 {
     comptime var total: usize = 0;
     for (words) |word| {
-        total += if (config.dictionary.splits.get(word)) |s| s.len else splitByAcronyms(config, word).len;
+        total += if (config.dictionary.splits.get(word)) |s| s.len else 1;
     }
 
     comptime var result: [total][]const u8 = undefined;
     comptime var i: usize = 0;
     for (words) |word| {
-        const expanded = config.dictionary.splits.get(word) orelse splitByAcronyms(config, word);
-        for (expanded) |w| {
-            result[i] = w;
+        if (config.dictionary.splits.get(word)) |split_words| {
+            for (split_words) |w| {
+                result[i] = w;
+                i += 1;
+            }
+        } else {
+            result[i] = word;
             i += 1;
         }
     }
@@ -233,7 +340,8 @@ fn findAcronymAt(comptime config: Config, comptime word: []const u8, comptime po
 }
 
 /// Input split into lowercase words by delimiters and case boundaries.
-fn parseWords(comptime input: []const u8) []const []const u8 {
+/// Detects acronyms from the dictionary and keeps them as single words.
+fn parseWords(comptime config: Config, comptime input: []const u8) []const []const u8 {
     comptime var words: [input.len][]const u8 = undefined;
     comptime var count: usize = 0;
     comptime var start: usize = 0;
@@ -244,27 +352,61 @@ fn parseWords(comptime input: []const u8) []const []const u8 {
 
         if (isDelimiter(c)) {
             if (i > start) {
-                words[count] = lowercase(input[start..i]);
-                count += 1;
+                const segment = input[start..i];
+                const split = splitUppercaseSegment(config, segment);
+                for (split) |w| {
+                    words[count] = w;
+                    count += 1;
+                }
             }
             start = i + 1;
             continue;
         }
 
-        if (i > start and isWordBoundary(input, i)) {
-            words[count] = lowercase(input[start..i]);
-            count += 1;
+        if (i > start and isWordBoundary(config, input, i)) {
+            const segment = input[start..i];
+            const split = splitUppercaseSegment(config, segment);
+            for (split) |w| {
+                words[count] = w;
+                count += 1;
+            }
             start = i;
         }
     }
 
     if (input.len > start) {
-        words[count] = lowercase(input[start..]);
-        count += 1;
+        const segment = input[start..];
+        const split = splitUppercaseSegment(config, segment);
+        for (split) |w| {
+            words[count] = w;
+            count += 1;
+        }
     }
 
     const out = words;
     return out[0..count];
+}
+
+/// Split an all-uppercase segment by acronyms, or return as single lowercase word.
+fn splitUppercaseSegment(comptime config: Config, comptime segment: []const u8) []const []const u8 {
+    // Only split if the entire segment is uppercase (like "XRVRS" or "HTTP")
+    comptime var all_upper = true;
+    for (segment) |c| {
+        if (ascii.isAlphabetic(c) and ascii.isLower(c)) {
+            all_upper = false;
+            break;
+        }
+    }
+
+    if (all_upper) {
+        // Use acronym splitting for all-uppercase segments
+        return splitByAcronyms(config, lowercase(segment));
+    } else {
+        // Mixed case - just lowercase the whole thing
+        const result: [1][]const u8 = .{lowercase(segment)};
+        const out = result;
+        return &out;
+    }
 }
 
 /// Any non-alphanumeric character is a delimiter.
@@ -273,16 +415,22 @@ fn isDelimiter(c: u8) bool {
 }
 
 /// True if a new word starts at this position.
-fn isWordBoundary(comptime input: []const u8, comptime i: usize) bool {
+fn isWordBoundary(comptime config: Config, comptime input: []const u8, comptime i: usize) bool {
     const prev = input[i - 1];
     const curr = input[i];
     const next: ?u8 = if (i + 1 < input.len) input[i + 1] else null;
+
+    // Check if we're inside a known acronym - if so, never split
+    if (isInsideAcronym(config, input, i)) return false;
 
     // "helloWorld" -> "hello", "World"
     if (ascii.isLower(prev) and ascii.isUpper(curr)) return true;
 
     // "HTTPRequest" -> "HTTP", "Request"
     if (ascii.isUpper(prev) and ascii.isUpper(curr)) {
+        // Check if current position starts a known acronym
+        if (findAcronymAtInput(config, input, i)) |_| return true;
+        // Standard boundary: uppercase followed by lowercase (end of acronym run)
         if (next) |n| if (ascii.isLower(n)) return true;
     }
 
@@ -292,6 +440,77 @@ fn isWordBoundary(comptime input: []const u8, comptime i: usize) bool {
     }
 
     return false;
+}
+
+/// Check if position i is inside (but not at the start of) a known acronym.
+fn isInsideAcronym(comptime config: Config, comptime input: []const u8, comptime i: usize) bool {
+    // Look backwards to find if an acronym started before position i and extends past it
+    for (config.dictionary.acronyms.keys()) |acronym| {
+        // Check all possible start positions that would include position i
+        comptime var start: usize = if (i >= acronym.len) i - acronym.len + 1 else 0;
+        while (start < i) : (start += 1) {
+            // Only consider acronyms that start at valid word boundaries
+            if (!isValidAcronymStart(input, start)) continue;
+
+            if (start + acronym.len <= input.len) {
+                comptime var matches = true;
+                for (acronym, 0..) |ac, j| {
+                    if (ascii.toLower(input[start + j]) != ascii.toLower(ac)) {
+                        matches = false;
+                        break;
+                    }
+                }
+                if (matches) {
+                    // Acronym starts at `start` and covers position i
+                    return true;
+                }
+            }
+        }
+    }
+    return false;
+}
+
+/// Check if a position is a valid place for an acronym to start.
+/// Acronyms can only be detected at: start of input, after delimiter, or at uppercase letter.
+fn isValidAcronymStart(comptime input: []const u8, comptime pos: usize) bool {
+    // Start of input is always valid
+    if (pos == 0) return true;
+
+    const prev = input[pos - 1];
+    const curr = input[pos];
+
+    // After a delimiter is valid
+    if (!ascii.isAlphanumeric(prev)) return true;
+
+    // Uppercase letter after lowercase is valid (normal word boundary)
+    if (ascii.isLower(prev) and ascii.isUpper(curr)) return true;
+
+    // Within an all-uppercase run is valid (consecutive uppercase letters)
+    if (ascii.isUpper(prev) and ascii.isUpper(curr)) return true;
+
+    // Otherwise not valid (e.g., lowercase in the middle of a word like "Xrvrs")
+    return false;
+}
+
+/// Find acronym at position in original (non-lowercased) input.
+fn findAcronymAtInput(comptime config: Config, comptime input: []const u8, comptime pos: usize) ?[]const u8 {
+    // Only detect acronyms at valid word boundaries
+    if (!isValidAcronymStart(input, pos)) return null;
+
+    for (config.dictionary.acronyms.keys()) |acronym| {
+        if (pos + acronym.len <= input.len) {
+            // Compare case-insensitively
+            comptime var matches = true;
+            for (acronym, 0..) |ac, j| {
+                if (ascii.toLower(input[pos + j]) != ascii.toLower(ac)) {
+                    matches = false;
+                    break;
+                }
+            }
+            if (matches) return acronym;
+        }
+    }
+    return null;
 }
 
 /// Input with all characters lowercased.
@@ -323,7 +542,7 @@ pub const Config = struct {
     };
 
     pub const snake: Config = .{ .first = .lower, .rest = .lower, .acronym = .lower, .delimiter = "_" };
-    pub const camel: Config = .{ .first = .lower, .rest = .title, .acronym = .lower, .delimiter = "" };
+    pub const camel: Config = .{ .first = .lower, .rest = .title, .acronym = .title, .delimiter = "" };
     pub const pascal: Config = .{ .first = .title, .rest = .title, .acronym = .title, .delimiter = "" };
     pub const constant: Config = .{ .first = .upper, .rest = .upper, .acronym = .upper, .delimiter = "_" };
     pub const kebab: Config = .{ .first = .lower, .rest = .lower, .acronym = .lower, .delimiter = "-" };
@@ -361,6 +580,18 @@ pub const Config = struct {
             .delimiter = base.delimiter,
             .prefix = base.prefix,
             .suffix = suffix,
+            .dictionary = base.dictionary,
+        };
+    }
+
+    pub fn withAcronym(base: Config, acronym: Case) Config {
+        return .{
+            .first = base.first,
+            .rest = base.rest,
+            .acronym = acronym,
+            .delimiter = base.delimiter,
+            .prefix = base.prefix,
+            .suffix = base.suffix,
             .dictionary = base.dictionary,
         };
     }

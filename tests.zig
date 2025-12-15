@@ -13,6 +13,7 @@ test "camelCase" {
     try testing.expectEqualStrings("helloWorld", comptimeConvert(.camel, "HelloWorld"));
     try testing.expectEqualStrings("helloWorld", comptimeConvert(.camel, "HELLO_WORLD"));
     try testing.expectEqualStrings("httpRequest", comptimeConvert(.camel, "HTTPRequest"));
+    try testing.expectEqualStrings("requestHttp", comptimeConvert(.camel, "RequestHTTP"));
 }
 
 test "PascalCase" {
@@ -97,6 +98,74 @@ test "acronym splitting" {
     };
     try testing.expectEqualStrings("XrVrs", comptimeConvert(config, "XRVRS"));
     try testing.expectEqualStrings("XrVrsHelper", comptimeConvert(config, "XRVRSHelper"));
+}
+
+test "acronym detection only at word boundaries" {
+    // Acronyms should only be detected at valid word boundaries, not in the middle of words
+    const snake_xr: Config = .{
+        .first = .lower,
+        .rest = .lower,
+        .acronym = .lower,
+        .delimiter = "_",
+        .dictionary = .{
+            .acronyms = StaticStringMap(void).initComptime(&.{
+                .{ "xr", {} },
+                .{ "vrs", {} },
+            }),
+        },
+    };
+
+    // XRVRS -> all uppercase, acronyms detected -> "xr_vrs"
+    try testing.expectEqualStrings("xr_vrs", comptimeConvert(snake_xr, "XRVRS"));
+    // XR_VRS -> delimiter separated, acronyms detected -> "xr_vrs"
+    try testing.expectEqualStrings("xr_vrs", comptimeConvert(snake_xr, "XR_VRS"));
+    // XrVrs -> title case boundaries, acronyms detected -> "xr_vrs"
+    try testing.expectEqualStrings("xr_vrs", comptimeConvert(snake_xr, "XrVrs"));
+    // Xrvrs -> lowercase after X, "rv" is not at a word boundary -> single word "xrvrs"
+    try testing.expectEqualStrings("xrvrs", comptimeConvert(snake_xr, "Xrvrs"));
+
+    // Runtime version
+    var buf: [64]u8 = undefined;
+    try testing.expectEqualStrings("xr_vrs", bufConvert(snake_xr, &buf, "XRVRS").?);
+    try testing.expectEqualStrings("xr_vrs", bufConvert(snake_xr, &buf, "XrVrs").?);
+    try testing.expectEqualStrings("xrvrs", bufConvert(snake_xr, &buf, "Xrvrs").?);
+}
+
+test "acronym detection in input" {
+    // Detect acronyms in input and keep them together as single words
+    const http_aware: Config = .{
+        .first = .lower,
+        .rest = .lower,
+        .acronym = .lower,
+        .delimiter = "_",
+        .dictionary = .{
+            .acronyms = StaticStringMap(void).initComptime(&.{
+                .{ "http", {} },
+                .{ "api", {} },
+            }),
+        },
+    };
+
+    // "RequestHTTPSomething" should detect HTTP as one word, not H-T-T-P
+    try testing.expectEqualStrings("request_http_something", comptimeConvert(http_aware, "RequestHTTPSomething"));
+    try testing.expectEqualStrings("http_request", comptimeConvert(http_aware, "HTTPRequest"));
+    try testing.expectEqualStrings("my_http_api", comptimeConvert(http_aware, "MyHTTPAPI"));
+
+    // Test runtime version too
+    var buf: [64]u8 = undefined;
+    try testing.expectEqualStrings("request_http_something", bufConvert(http_aware, &buf, "RequestHTTPSomething").?);
+    try testing.expectEqualStrings("http_request", bufConvert(http_aware, &buf, "HTTPRequest").?);
+
+    // Roundtrip: snake -> pascal with uppercase acronyms -> snake
+    const pascal_http: Config = .{
+        .first = .title,
+        .rest = .title,
+        .acronym = .upper,
+        .delimiter = "",
+        .dictionary = http_aware.dictionary,
+    };
+    try testing.expectEqualStrings("RequestHTTPSomething", comptimeConvert(pascal_http, "request_http_something"));
+    try testing.expectEqualStrings("HTTPRequest", comptimeConvert(pascal_http, "http_request"));
 }
 
 test "splits dictionary" {
