@@ -171,6 +171,93 @@ pub fn allocConvertSentinel(comptime config: Config, allocator: Allocator, input
     return result;
 }
 
+/// Runtime case conversion that writes directly to a writer.
+pub fn writeConvert(writer: *std.Io.Writer, comptime config: Config, input: []const u8) anyerror!void {
+    var segments: [256][]const u8 = undefined;
+    var segment_count: usize = 0;
+
+    // Parse segments (will be split further if all-uppercase)
+    var start: usize = 0;
+    var i: usize = 0;
+    while (i < input.len) : (i += 1) {
+        const c = input[i];
+
+        if (!ascii.isAlphanumeric(c)) {
+            if (i > start) {
+                if (segment_count >= segments.len) return error.TooManySegments;
+                segments[segment_count] = input[start..i];
+                segment_count += 1;
+            }
+            start = i + 1;
+            continue;
+        }
+
+        if (i > start and isWordBoundaryRuntime(config, input, i)) {
+            if (segment_count >= segments.len) return error.TooManySegments;
+            segments[segment_count] = input[start..i];
+            segment_count += 1;
+            start = i;
+        }
+    }
+
+    if (input.len > start) {
+        if (segment_count >= segments.len) return error.TooManySegments;
+        segments[segment_count] = input[start..];
+        segment_count += 1;
+    }
+
+    // Write output
+    try writer.writeAll(config.prefix);
+
+    var global_word_idx: usize = 0;
+    for (segments[0..segment_count]) |segment| {
+        // Check if segment is all-uppercase
+        var all_upper = true;
+        for (segment) |c| {
+            if (ascii.isAlphabetic(c) and ascii.isLower(c)) {
+                all_upper = false;
+                break;
+            }
+        }
+
+        if (all_upper) {
+            // Split by acronyms
+            var seg_pos: usize = 0;
+            while (seg_pos < segment.len) {
+                const acronym = findAcronymAtInputRuntime(config, segment, seg_pos);
+                const word_len = if (acronym) |a| a.len else segment.len - seg_pos;
+                const word = segment[seg_pos..][0..word_len];
+
+                if (global_word_idx > 0) {
+                    try writer.writeAll(config.delimiter);
+                }
+
+                const policy = wordPolicyRuntime(config, word, global_word_idx);
+                for (word, 0..) |c, char_idx| {
+                    try writer.writeByte(applyCaseRuntime(policy, c, char_idx));
+                }
+
+                global_word_idx += 1;
+                seg_pos += word_len;
+            }
+        } else {
+            // Single word
+            if (global_word_idx > 0) {
+                try writer.writeAll(config.delimiter);
+            }
+
+            const policy = wordPolicyRuntime(config, segment, global_word_idx);
+            for (segment, 0..) |c, char_idx| {
+                try writer.writeByte(applyCaseRuntime(policy, c, char_idx));
+            }
+
+            global_word_idx += 1;
+        }
+    }
+
+    try writer.writeAll(config.suffix);
+}
+
 /// Length of the final converted string from raw input.
 fn comptimeOutputLen(comptime config: Config, comptime input: []const u8) usize {
     @setEvalBranchQuota(10_000);

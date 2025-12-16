@@ -249,11 +249,41 @@ test "allocConvert" {
     try testing.expectEqualStrings("HelloWorld", pascal);
 }
 
+test "writeConvert" {
+    var buf: [64]u8 = undefined;
+
+    var w = std.Io.Writer.fixed(&buf);
+    try writeConvert(&w, .snake, "HelloWorld");
+    try testing.expectEqualStrings("hello_world", w.buffered());
+
+    w = std.Io.Writer.fixed(&buf);
+    try writeConvert(&w, .camel, "hello_world");
+    try testing.expectEqualStrings("helloWorld", w.buffered());
+
+    w = std.Io.Writer.fixed(&buf);
+    try writeConvert(&w, .pascal, "hello_world");
+    try testing.expectEqualStrings("HelloWorld", w.buffered());
+
+    w = std.Io.Writer.fixed(&buf);
+    try writeConvert(&w, .constant, "helloWorld");
+    try testing.expectEqualStrings("HELLO_WORLD", w.buffered());
+
+    w = std.Io.Writer.fixed(&buf);
+    try writeConvert(&w, .kebab, "HelloWorld");
+    try testing.expectEqualStrings("hello-world", w.buffered());
+
+    // Test with prefix
+    w = std.Io.Writer.fixed(&buf);
+    try writeConvert(&w, .withPrefix(.snake, "_"), "helloWorld");
+    try testing.expectEqualStrings("_hello_world", w.buffered());
+}
+
 const std = @import("std");
 const testing = std.testing;
 const casez = @import("casez.zig");
 const allocConvert = casez.allocConvert;
 const bufConvert = casez.bufConvert;
 const comptimeConvert = casez.comptimeConvert;
+const writeConvert = casez.writeConvert;
 const Config = casez.Config;
 const StaticStringMap = std.StaticStringMap;
