@@ -15,7 +15,7 @@ const pascal = casez.comptimeConvert(.pascal, "hello_world"); // "HelloWorld"
 
 // Runtime conversion (buffer-based)
 var buf: [64]u8 = undefined;
-const result = casez.bufConvert(.camel, &buf, input);
+const result = try casez.bufConvert(.camel, &buf, input);
 
 // Runtime conversion (allocating)
 const allocated = try casez.allocConvert(.kebab, allocator, input);

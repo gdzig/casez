@@ -126,9 +126,9 @@ test "acronym detection only at word boundaries" {
 
     // Runtime version
     var buf: [64]u8 = undefined;
-    try testing.expectEqualStrings("xr_vrs", bufConvert(snake_xr, &buf, "XRVRS").?);
-    try testing.expectEqualStrings("xr_vrs", bufConvert(snake_xr, &buf, "XrVrs").?);
-    try testing.expectEqualStrings("xrvrs", bufConvert(snake_xr, &buf, "Xrvrs").?);
+    try testing.expectEqualStrings("xr_vrs", try bufConvert(snake_xr, &buf, "XRVRS"));
+    try testing.expectEqualStrings("xr_vrs", try bufConvert(snake_xr, &buf, "XrVrs"));
+    try testing.expectEqualStrings("xrvrs", try bufConvert(snake_xr, &buf, "Xrvrs"));
 }
 
 test "acronym detection in input" {
@@ -153,8 +153,8 @@ test "acronym detection in input" {
 
     // Test runtime version too
     var buf: [64]u8 = undefined;
-    try testing.expectEqualStrings("request_http_something", bufConvert(http_aware, &buf, "RequestHTTPSomething").?);
-    try testing.expectEqualStrings("http_request", bufConvert(http_aware, &buf, "HTTPRequest").?);
+    try testing.expectEqualStrings("request_http_something", try bufConvert(http_aware, &buf, "RequestHTTPSomething"));
+    try testing.expectEqualStrings("http_request", try bufConvert(http_aware, &buf, "HTTPRequest"));
 
     // Roundtrip: snake -> pascal with uppercase acronyms -> snake
     const pascal_http: Config = .{
@@ -226,11 +226,11 @@ test "detection" {
 test "bufConvert" {
     var buf: [64]u8 = undefined;
 
-    try testing.expectEqualStrings("hello_world", bufConvert(.snake, &buf, "HelloWorld").?);
-    try testing.expectEqualStrings("helloWorld", bufConvert(.camel, &buf, "hello_world").?);
-    try testing.expectEqualStrings("HelloWorld", bufConvert(.pascal, &buf, "hello_world").?);
-    try testing.expectEqualStrings("HELLO_WORLD", bufConvert(.constant, &buf, "helloWorld").?);
-    try testing.expectEqualStrings("hello-world", bufConvert(.kebab, &buf, "HelloWorld").?);
+    try testing.expectEqualStrings("hello_world", try bufConvert(.snake, &buf, "HelloWorld"));
+    try testing.expectEqualStrings("helloWorld", try bufConvert(.camel, &buf, "hello_world"));
+    try testing.expectEqualStrings("HelloWorld", try bufConvert(.pascal, &buf, "hello_world"));
+    try testing.expectEqualStrings("HELLO_WORLD", try bufConvert(.constant, &buf, "helloWorld"));
+    try testing.expectEqualStrings("hello-world", try bufConvert(.kebab, &buf, "HelloWorld"));
 }
 
 test "allocConvert" {

@@ -1,9 +1,11 @@
-/// Comptime case conversion, returns a comptime string slice.
-pub fn comptimeConvert(comptime config: Config, comptime input: []const u8) []const u8 {
-    @setEvalBranchQuota(10_000);
-    const words = comptime expandWords(config, parseWords(config, input));
+pub const BufConvertError = error{NoSpaceLeft};
 
-    comptime var buf: [outputLen(config, words)]u8 = undefined;
+/// Comptime case conversion, returns a pointer to a null-terminated comptime array.
+pub fn comptimeConvert(comptime config: Config, comptime input: []const u8) *const [comptimeOutputLen(config, input):0]u8 {
+    const words = comptime expandWords(config, parseWords(config, input));
+    const len = comptime outputLen(config, words);
+
+    comptime var buf: [len:0]u8 = undefined;
     comptime var pos: usize = 0;
 
     inline for (config.prefix, 0..) |p, j| buf[pos + j] = p;
@@ -25,12 +27,14 @@ pub fn comptimeConvert(comptime config: Config, comptime input: []const u8) []co
     inline for (config.suffix, 0..) |s, j| buf[pos + j] = s;
     pos += config.suffix.len;
 
+    buf[len] = 0;
+
     const out = buf;
     return &out;
 }
 
 /// Runtime case conversion into a provided buffer.
-pub fn bufConvert(comptime config: Config, buf: []u8, input: []const u8) ?[]u8 {
+pub fn bufConvert(comptime config: Config, buf: []u8, input: []const u8) BufConvertError![]u8 {
     var segments: [256][]const u8 = undefined;
     var segment_count: usize = 0;
 
@@ -42,7 +46,7 @@ pub fn bufConvert(comptime config: Config, buf: []u8, input: []const u8) ?[]u8 {
 
         if (!ascii.isAlphanumeric(c)) {
             if (i > start) {
-                if (segment_count >= segments.len) return null;
+                if (segment_count >= segments.len) return error.NoSpaceLeft;
                 segments[segment_count] = input[start..i];
                 segment_count += 1;
             }
@@ -51,7 +55,7 @@ pub fn bufConvert(comptime config: Config, buf: []u8, input: []const u8) ?[]u8 {
         }
 
         if (i > start and isWordBoundaryRuntime(config, input, i)) {
-            if (segment_count >= segments.len) return null;
+            if (segment_count >= segments.len) return error.NoSpaceLeft;
             segments[segment_count] = input[start..i];
             segment_count += 1;
             start = i;
@@ -59,7 +63,7 @@ pub fn bufConvert(comptime config: Config, buf: []u8, input: []const u8) ?[]u8 {
     }
 
     if (input.len > start) {
-        if (segment_count >= segments.len) return null;
+        if (segment_count >= segments.len) return error.NoSpaceLeft;
         segments[segment_count] = input[start..];
         segment_count += 1;
     }
@@ -67,7 +71,7 @@ pub fn bufConvert(comptime config: Config, buf: []u8, input: []const u8) ?[]u8 {
     // Write output
     var pos: usize = 0;
 
-    if (pos + config.prefix.len > buf.len) return null;
+    if (pos + config.prefix.len > buf.len) return error.NoSpaceLeft;
     @memcpy(buf[pos..][0..config.prefix.len], config.prefix);
     pos += config.prefix.len;
 
@@ -91,14 +95,14 @@ pub fn bufConvert(comptime config: Config, buf: []u8, input: []const u8) ?[]u8 {
                 const word = segment[seg_pos..][0..word_len];
 
                 if (global_word_idx > 0) {
-                    if (pos + config.delimiter.len > buf.len) return null;
+                    if (pos + config.delimiter.len > buf.len) return error.NoSpaceLeft;
                     @memcpy(buf[pos..][0..config.delimiter.len], config.delimiter);
                     pos += config.delimiter.len;
                 }
 
                 const policy = wordPolicyRuntime(config, word, global_word_idx);
                 for (word, 0..) |c, char_idx| {
-                    if (pos >= buf.len) return null;
+                    if (pos >= buf.len) return error.NoSpaceLeft;
                     buf[pos] = applyCaseRuntime(policy, c, char_idx);
                     pos += 1;
                 }
@@ -109,14 +113,14 @@ pub fn bufConvert(comptime config: Config, buf: []u8, input: []const u8) ?[]u8 {
         } else {
             // Single word
             if (global_word_idx > 0) {
-                if (pos + config.delimiter.len > buf.len) return null;
+                if (pos + config.delimiter.len > buf.len) return error.NoSpaceLeft;
                 @memcpy(buf[pos..][0..config.delimiter.len], config.delimiter);
                 pos += config.delimiter.len;
             }
 
             const policy = wordPolicyRuntime(config, segment, global_word_idx);
             for (segment, 0..) |c, char_idx| {
-                if (pos >= buf.len) return null;
+                if (pos >= buf.len) return error.NoSpaceLeft;
                 buf[pos] = applyCaseRuntime(policy, c, char_idx);
                 pos += 1;
             }
@@ -125,28 +129,52 @@ pub fn bufConvert(comptime config: Config, buf: []u8, input: []const u8) ?[]u8 {
         }
     }
 
-    if (pos + config.suffix.len > buf.len) return null;
+    if (pos + config.suffix.len > buf.len) return error.NoSpaceLeft;
     @memcpy(buf[pos..][0..config.suffix.len], config.suffix);
     pos += config.suffix.len;
 
     return buf[0..pos];
 }
 
+/// Runtime case conversion into a provided buffer, with sentinel.
+pub fn bufConvertSentinel(comptime config: Config, buf: []u8, input: []const u8, comptime sentinel: u8) BufConvertError![:sentinel]u8 {
+    if (buf.len == 0) return error.NoSpaceLeft;
+    const result = try bufConvert(config, buf[0 .. buf.len - 1], input);
+    buf[result.len] = sentinel;
+    return buf[0..result.len :sentinel];
+}
+
 /// Runtime case conversion with allocation.
-pub fn allocConvert(comptime config: Config, allocator: std.mem.Allocator, input: []const u8) ![]u8 {
+pub fn allocConvert(comptime config: Config, allocator: Allocator, input: []const u8) Allocator.Error![]u8 {
     // Worst case: every char becomes a word with delimiter, plus prefix and suffix
     const max_len = config.prefix.len + input.len + input.len * config.delimiter.len + config.suffix.len;
     const buf = try allocator.alloc(u8, max_len);
 
-    if (bufConvert(config, buf, input)) |result| {
-        if (result.len < buf.len) {
-            return allocator.realloc(buf, result.len) catch result;
-        }
-        return result;
-    } else {
-        allocator.free(buf);
-        return error.ConversionFailed;
+    const result = bufConvert(config, buf, input) catch unreachable;
+    if (result.len < buf.len) {
+        return allocator.realloc(buf, result.len) catch result;
     }
+    return result;
+}
+
+/// Runtime case conversion with allocation, with sentinel.
+pub fn allocConvertSentinel(comptime config: Config, allocator: Allocator, input: []const u8, comptime sentinel: u8) Allocator.Error![:sentinel]u8 {
+    // Worst case: every char becomes a word with delimiter, plus prefix and suffix, plus sentinel
+    const max_len = config.prefix.len + input.len + input.len * config.delimiter.len + config.suffix.len + 1;
+    const buf = try allocator.alloc(u8, max_len);
+
+    const result = bufConvertSentinel(config, buf, input, sentinel) catch unreachable;
+    if (result.len + 1 < buf.len) {
+        const new_buf = allocator.realloc(buf, result.len + 1) catch buf;
+        return new_buf[0..result.len :sentinel];
+    }
+    return result;
+}
+
+/// Length of the final converted string from raw input.
+fn comptimeOutputLen(comptime config: Config, comptime input: []const u8) usize {
+    @setEvalBranchQuota(10_000);
+    return outputLen(config, expandWords(config, parseWords(config, input)));
 }
 
 /// Length of the final converted string.
@@ -685,4 +713,5 @@ test {
 
 const std = @import("std");
 const ascii = std.ascii;
+const Allocator = std.mem.Allocator;
 const StaticStringMap = std.StaticStringMap;
