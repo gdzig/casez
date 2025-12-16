@@ -126,9 +126,9 @@ test "acronym detection only at word boundaries" {
 
     // Runtime version
     var buf: [64]u8 = undefined;
-    try testing.expectEqualStrings("xr_vrs", try bufConvert(snake_xr, &buf, "XRVRS"));
-    try testing.expectEqualStrings("xr_vrs", try bufConvert(snake_xr, &buf, "XrVrs"));
-    try testing.expectEqualStrings("xrvrs", try bufConvert(snake_xr, &buf, "Xrvrs"));
+    try testing.expectEqualStrings("xr_vrs", try bufConvert(&buf, snake_xr, "XRVRS"));
+    try testing.expectEqualStrings("xr_vrs", try bufConvert(&buf, snake_xr, "XrVrs"));
+    try testing.expectEqualStrings("xrvrs", try bufConvert(&buf, snake_xr, "Xrvrs"));
 }
 
 test "acronym detection in input" {
@@ -153,8 +153,8 @@ test "acronym detection in input" {
 
     // Test runtime version too
     var buf: [64]u8 = undefined;
-    try testing.expectEqualStrings("request_http_something", try bufConvert(http_aware, &buf, "RequestHTTPSomething"));
-    try testing.expectEqualStrings("http_request", try bufConvert(http_aware, &buf, "HTTPRequest"));
+    try testing.expectEqualStrings("request_http_something", try bufConvert(&buf, http_aware, "RequestHTTPSomething"));
+    try testing.expectEqualStrings("http_request", try bufConvert(&buf, http_aware, "HTTPRequest"));
 
     // Roundtrip: snake -> pascal with uppercase acronyms -> snake
     const pascal_http: Config = .{
@@ -226,25 +226,25 @@ test "detection" {
 test "bufConvert" {
     var buf: [64]u8 = undefined;
 
-    try testing.expectEqualStrings("hello_world", try bufConvert(.snake, &buf, "HelloWorld"));
-    try testing.expectEqualStrings("helloWorld", try bufConvert(.camel, &buf, "hello_world"));
-    try testing.expectEqualStrings("HelloWorld", try bufConvert(.pascal, &buf, "hello_world"));
-    try testing.expectEqualStrings("HELLO_WORLD", try bufConvert(.constant, &buf, "helloWorld"));
-    try testing.expectEqualStrings("hello-world", try bufConvert(.kebab, &buf, "HelloWorld"));
+    try testing.expectEqualStrings("hello_world", try bufConvert(&buf, .snake, "HelloWorld"));
+    try testing.expectEqualStrings("helloWorld", try bufConvert(&buf, .camel, "hello_world"));
+    try testing.expectEqualStrings("HelloWorld", try bufConvert(&buf, .pascal, "hello_world"));
+    try testing.expectEqualStrings("HELLO_WORLD", try bufConvert(&buf, .constant, "helloWorld"));
+    try testing.expectEqualStrings("hello-world", try bufConvert(&buf, .kebab, "HelloWorld"));
 }
 
 test "allocConvert" {
     const allocator = testing.allocator;
 
-    const snake = try allocConvert(.snake, allocator, "HelloWorld");
+    const snake = try allocConvert(allocator, .snake, "HelloWorld");
     defer allocator.free(snake);
     try testing.expectEqualStrings("hello_world", snake);
 
-    const camel = try allocConvert(.camel, allocator, "hello_world");
+    const camel = try allocConvert(allocator, .camel, "hello_world");
     defer allocator.free(camel);
     try testing.expectEqualStrings("helloWorld", camel);
 
-    const pascal = try allocConvert(.pascal, allocator, "hello_world");
+    const pascal = try allocConvert(allocator, .pascal, "hello_world");
     defer allocator.free(pascal);
     try testing.expectEqualStrings("HelloWorld", pascal);
 }
