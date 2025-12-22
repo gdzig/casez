@@ -83,6 +83,33 @@ test "acronym dictionary" {
     try testing.expectEqualStrings("HTTPURLParser", comptimeConvert(config, "http_url_parser"));
 }
 
+test "acronym with numeric suffix" {
+    // Node2d/Node3d should convert to Node2D/Node3D when 2d/3d are in the acronym dictionary
+    const config: Config = .{
+        .first = .title,
+        .rest = .title,
+        .acronym = .upper,
+        .delimiter = "",
+        .dictionary = .{
+            .acronyms = StaticStringMap(void).initComptime(&.{
+                .{ "2d", {} },
+                .{ "3d", {} },
+            }),
+        },
+    };
+    try testing.expectEqualStrings("Node2D", comptimeConvert(config, "node_2d"));
+    try testing.expectEqualStrings("Node3D", comptimeConvert(config, "node_3d"));
+    try testing.expectEqualStrings("Physics2DServer", comptimeConvert(config, "physics_2d_server"));
+    try testing.expectEqualStrings("Node2D", comptimeConvert(config, "Node2d"));
+    try testing.expectEqualStrings("Node3D", comptimeConvert(config, "Node3d"));
+
+    // Runtime version
+    var buf: [64]u8 = undefined;
+    try testing.expectEqualStrings("Node2D", try bufConvert(&buf, config, "node_2d"));
+    try testing.expectEqualStrings("Node2D", try bufConvert(&buf, config, "Node2d"));
+    try testing.expectEqualStrings("Node3D", try bufConvert(&buf, config, "Node3d"));
+}
+
 test "acronym splitting" {
     const config: Config = .{
         .first = .title,
