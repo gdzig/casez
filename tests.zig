@@ -57,9 +57,7 @@ test "numeric words" {
         .acronym = .lower,
         .delimiter = "_",
         .dictionary = .{
-            .splits = StaticStringMap([]const []const u8).initComptime(&.{
-                .{ "vector2d", &.{ "vector", "2d" } },
-            }),
+            .splits = &.{.{ "vector", "2d" }},
         },
     };
     try testing.expectEqualStrings("vector_2d", comptimeConvert(with_splits, "Vector2D"));
@@ -72,10 +70,7 @@ test "acronym dictionary" {
         .acronym = .upper,
         .delimiter = "",
         .dictionary = .{
-            .acronyms = StaticStringMap(void).initComptime(&.{
-                .{ "http", {} },
-                .{ "url", {} },
-            }),
+            .acronyms = &.{ "http", "url" },
         },
     };
     try testing.expectEqualStrings("HTTPRequest", comptimeConvert(config, "http_request"));
@@ -90,11 +85,9 @@ test "acronym with numeric suffix" {
         .rest = .title,
         .acronym = .upper,
         .delimiter = "",
+        .digit_boundary = true,
         .dictionary = .{
-            .acronyms = StaticStringMap(void).initComptime(&.{
-                .{ "2d", {} },
-                .{ "3d", {} },
-            }),
+            .acronyms = &.{ "2d", "3d" },
         },
     };
     try testing.expectEqualStrings("Node2D", comptimeConvert(config, "node_2d"));
@@ -117,10 +110,7 @@ test "acronym splitting" {
         .acronym = .title,
         .delimiter = "",
         .dictionary = .{
-            .acronyms = StaticStringMap(void).initComptime(&.{
-                .{ "xr", {} },
-                .{ "vrs", {} },
-            }),
+            .acronyms = &.{ "xr", "vrs" },
         },
     };
     try testing.expectEqualStrings("XrVrs", comptimeConvert(config, "XRVRS"));
@@ -135,10 +125,7 @@ test "acronym detection only at word boundaries" {
         .acronym = .lower,
         .delimiter = "_",
         .dictionary = .{
-            .acronyms = StaticStringMap(void).initComptime(&.{
-                .{ "xr", {} },
-                .{ "vrs", {} },
-            }),
+            .acronyms = &.{ "xr", "vrs" },
         },
     };
 
@@ -166,10 +153,7 @@ test "acronym detection in input" {
         .acronym = .lower,
         .delimiter = "_",
         .dictionary = .{
-            .acronyms = StaticStringMap(void).initComptime(&.{
-                .{ "http", {} },
-                .{ "api", {} },
-            }),
+            .acronyms = &.{ "http", "api" },
         },
     };
 
@@ -203,9 +187,7 @@ test "splits dictionary" {
         .acronym = .lower,
         .delimiter = "_",
         .dictionary = .{
-            .splits = StaticStringMap([]const []const u8).initComptime(&.{
-                .{ "vector2d", &.{ "vector", "2d" } },
-            }),
+            .splits = &.{.{ "vector", "2d" }},
         },
     };
     try testing.expectEqualStrings("vector_2d", comptimeConvert(config, "Vector2D"));
@@ -313,4 +295,3 @@ const bufConvert = casez.bufConvert;
 const comptimeConvert = casez.comptimeConvert;
 const writeConvert = casez.writeConvert;
 const Config = casez.Config;
-const StaticStringMap = std.StaticStringMap;

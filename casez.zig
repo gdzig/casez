@@ -13,8 +13,11 @@ pub fn comptimeConvert(comptime config: Config, comptime input: []const u8) *con
 
     inline for (words, 0..) |word, i| {
         if (comptime i > 0) {
-            inline for (config.delimiter, 0..) |d, j| buf[pos + j] = d;
-            pos += config.delimiter.len;
+            const prev_word = words[i - 1];
+            if (comptime !shouldJoin(config, prev_word, word)) {
+                inline for (config.delimiter, 0..) |d, j| buf[pos + j] = d;
+                pos += config.delimiter.len;
+            }
         }
 
         const policy = comptime wordPolicy(config, word, i);
@@ -109,6 +112,9 @@ pub fn writeConvert(writer: *Writer, comptime config: Config, input: []const u8)
     try writer.writeAll(config.prefix);
 
     var global_word_idx: usize = 0;
+    var prev_word_buf: [64]u8 = undefined;
+    var prev_word_len: usize = 0;
+
     for (segments[0..segment_count]) |segment| {
         // Check if segment is all-uppercase
         var all_upper = true;
@@ -127,28 +133,51 @@ pub fn writeConvert(writer: *Writer, comptime config: Config, input: []const u8)
                 const word_len = if (acronym) |a| a.len else segment.len - seg_pos;
                 const word = segment[seg_pos..][0..word_len];
 
+                // Lowercase the word for join checking
+                var lower_word_buf: [64]u8 = undefined;
+                for (word, 0..) |wc, wi| lower_word_buf[wi] = ascii.toLower(wc);
+                const lower_word = lower_word_buf[0..word_len];
+
                 if (global_word_idx > 0) {
-                    try writer.writeAll(config.delimiter);
+                    const prev_word = prev_word_buf[0..prev_word_len];
+                    if (!shouldJoinRuntime(config, prev_word, lower_word)) {
+                        try writer.writeAll(config.delimiter);
+                    }
                 }
 
-                const policy = wordPolicy(config, word, global_word_idx);
+                const policy = wordPolicy(config, lower_word, global_word_idx);
                 for (word, 0..) |c, char_idx| {
                     try writer.writeByte(applyCase(policy, c, char_idx));
                 }
+
+                // Save this word as prev for next iteration
+                @memcpy(prev_word_buf[0..word_len], lower_word);
+                prev_word_len = word_len;
 
                 global_word_idx += 1;
                 seg_pos += word_len;
             }
         } else {
-            // Single word
+            // Lowercase the segment for join checking and policy
+            var lower_seg_buf: [64]u8 = undefined;
+            for (segment, 0..) |sc, si| lower_seg_buf[si] = ascii.toLower(sc);
+            const lower_seg = lower_seg_buf[0..segment.len];
+
             if (global_word_idx > 0) {
-                try writer.writeAll(config.delimiter);
+                const prev_word = prev_word_buf[0..prev_word_len];
+                if (!shouldJoinRuntime(config, prev_word, lower_seg)) {
+                    try writer.writeAll(config.delimiter);
+                }
             }
 
-            const policy = wordPolicy(config, segment, global_word_idx);
+            const policy = wordPolicy(config, lower_seg, global_word_idx);
             for (segment, 0..) |c, char_idx| {
                 try writer.writeByte(applyCase(policy, c, char_idx));
             }
+
+            // Save this word as prev for next iteration
+            @memcpy(prev_word_buf[0..segment.len], lower_seg);
+            prev_word_len = segment.len;
 
             global_word_idx += 1;
         }
@@ -167,7 +196,9 @@ fn comptimeOutputLen(comptime config: Config, comptime input: []const u8) usize 
 fn outputLen(comptime config: Config, comptime words: []const []const u8) usize {
     comptime var len: usize = config.prefix.len;
     for (words, 0..) |word, i| {
-        if (i > 0) len += config.delimiter.len;
+        if (i > 0 and !shouldJoin(config, words[i - 1], word)) {
+            len += config.delimiter.len;
+        }
         len += word.len;
     }
     len += config.suffix.len;
@@ -175,10 +206,18 @@ fn outputLen(comptime config: Config, comptime words: []const []const u8) usize 
 }
 
 /// Case policy for a word based on position and acronym status.
-fn wordPolicy(config: Config, word: []const u8, index: usize) Config.Case {
-    if (config.dictionary.acronyms.get(word) != null) return config.acronym;
+fn wordPolicy(comptime config: Config, word: []const u8, index: usize) Config.Case {
+    if (isAcronym(config, word)) return config.acronym;
     if (index == 0) return config.first;
     return config.rest;
+}
+
+/// Check if a word is in the acronyms list.
+fn isAcronym(comptime config: Config, word: []const u8) bool {
+    inline for (config.dictionary.acronyms) |acronym| {
+        if (std.mem.eql(u8, word, acronym)) return true;
+    }
+    return false;
 }
 
 /// Transformed character with case applied.
@@ -194,17 +233,17 @@ fn applyCase(policy: Config.Case, c: u8, index: usize) u8 {
 fn expandWords(comptime config: Config, comptime words: []const []const u8) []const []const u8 {
     comptime var total: usize = 0;
     for (words) |word| {
-        total += if (config.dictionary.splits.get(word)) |s| s.len else 1;
+        total += if (findSplit(config, word)) |_| 2 else 1;
     }
 
     comptime var result: [total][]const u8 = undefined;
     comptime var i: usize = 0;
     for (words) |word| {
-        if (config.dictionary.splits.get(word)) |split_words| {
-            for (split_words) |w| {
-                result[i] = w;
-                i += 1;
-            }
+        if (findSplit(config, word)) |split| {
+            result[i] = split[0];
+            i += 1;
+            result[i] = split[1];
+            i += 1;
         } else {
             result[i] = word;
             i += 1;
@@ -213,6 +252,39 @@ fn expandWords(comptime config: Config, comptime words: []const []const u8) []co
 
     const out = result;
     return &out;
+}
+
+/// Find a split for a word by concatenating split parts and comparing.
+fn findSplit(comptime config: Config, word: []const u8) ?[2][]const u8 {
+    for (config.dictionary.splits) |split| {
+        const joined = split[0] ++ split[1];
+        if (std.mem.eql(u8, word, joined)) return split;
+    }
+    return null;
+}
+
+/// Check if two adjacent words should be joined (no delimiter between them).
+fn shouldJoin(comptime config: Config, comptime prev_word: []const u8, comptime next_word: []const u8) bool {
+    const joined = prev_word ++ next_word;
+    for (config.dictionary.joins) |join| {
+        if (std.mem.eql(u8, joined, join)) return true;
+    }
+    return false;
+}
+
+/// Runtime check if two adjacent words should be joined.
+fn shouldJoinRuntime(comptime config: Config, prev_word: []const u8, next_word: []const u8) bool {
+    if (config.dictionary.joins.len == 0) return false;
+    const total_len = prev_word.len + next_word.len;
+    for (config.dictionary.joins) |join| {
+        if (join.len == total_len and
+            std.mem.eql(u8, join[0..prev_word.len], prev_word) and
+            std.mem.eql(u8, join[prev_word.len..], next_word))
+        {
+            return true;
+        }
+    }
+    return false;
 }
 
 /// Word split by matching known acronyms from the start.
@@ -247,7 +319,7 @@ fn splitByAcronyms(comptime config: Config, comptime word: []const u8) []const [
 
 /// Acronym matching at position, or null.
 fn findAcronymAt(comptime config: Config, comptime word: []const u8, comptime pos: usize) ?[]const u8 {
-    for (config.dictionary.acronyms.keys()) |acronym| {
+    for (config.dictionary.acronyms) |acronym| {
         if (pos + acronym.len <= word.len and std.mem.eql(u8, word[pos..][0..acronym.len], acronym)) {
             return acronym;
         }
@@ -355,13 +427,16 @@ fn isWordBoundary(comptime config: Config, input: []const u8, i: usize) bool {
         if (next) |n| if (ascii.isLower(n)) return true;
     }
 
+    // "Node2d" -> "Node", "2d" (letter followed by digit starts new word)
+    if (config.digit_boundary and ascii.isAlphabetic(prev) and ascii.isDigit(curr)) return true;
+
     return false;
 }
 
 /// Check if position i is inside (but not at the start of) a known acronym.
 fn isInsideAcronym(comptime config: Config, input: []const u8, i: usize) bool {
     // Look backwards to find if an acronym started before position i and extends past it
-    for (config.dictionary.acronyms.keys()) |acronym| {
+    for (config.dictionary.acronyms) |acronym| {
         // Check all possible start positions that would include position i
         const start_min: usize = if (i >= acronym.len) i - acronym.len + 1 else 0;
         var start: usize = start_min;
@@ -414,7 +489,7 @@ fn findAcronymAtInput(comptime config: Config, input: []const u8, pos: usize) ?[
     // Only detect acronyms at valid word boundaries
     if (!isValidAcronymStart(input, pos)) return null;
 
-    for (config.dictionary.acronyms.keys()) |acronym| {
+    for (config.dictionary.acronyms) |acronym| {
         if (pos + acronym.len <= input.len) {
             // Compare case-insensitively
             var matches = true;
@@ -447,13 +522,15 @@ pub const Config = struct {
     delimiter: []const u8,
     prefix: []const u8 = "",
     suffix: []const u8 = "",
+    digit_boundary: bool = false,
     dictionary: Dictionary = .empty,
 
     pub const Case = enum { upper, title, lower };
 
     pub const Dictionary = struct {
-        acronyms: StaticStringMap(void) = .initComptime(&.{}),
-        splits: StaticStringMap([]const []const u8) = .initComptime(&.{}),
+        acronyms: []const []const u8 = &.{},
+        splits: []const [2][]const u8 = &.{},
+        joins: []const []const u8 = &.{},
 
         pub const empty: Dictionary = .{};
     };
