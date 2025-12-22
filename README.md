@@ -85,30 +85,30 @@ comptimeConvert(config, "Vector2D"); // "vector_2d"
 Add a custom prefix or suffix string:
 
 ```zig
-const prefixed: casez.Config = comptime .withPrefix(.snake, "_");
+const prefixed: casez.Config = comptime .with(.snake, .{ .prefix = "_" });
 comptimeConvert(prefixed, "helloWorld"); // "_hello_world"
 
-const suffixed: casez.Config = comptime .withSuffix(.snake, "_");
+const suffixed: casez.Config = comptime .with(.snake, .{ .suffix = "_" });
 comptimeConvert(suffixed, "helloWorld"); // "hello_world_"
 
 // Useful for virtual methods: _someMethod from some_method
-const prefixed_camel: casez.Config = comptime .withPrefix(.camel, "_");
+const prefixed_camel: casez.Config = comptime .with(.camel, .{ .prefix = "_" });
 comptimeConvert(prefixed_camel, "some_method"); // "_someMethod"
 ```
 
 ### Helpers
 
-Use helper methods to extend built-in configs:
+Use the `with` method to extend built-in configs:
 
 ```zig
-const custom: casez.Config = comptime .withDictionary(.pascal, .{
-    .acronyms = .initComptime(&.{
-        .{ "http", {} },
-    }),
+const custom: casez.Config = comptime .with(.pascal, .{
+    .dictionary = .{
+        .acronyms = &.{ "http" },
+    },
 });
 
-const prefixed = custom.withPrefix("_");
-const suffixed = custom.withSuffix("_");
+const prefixed: casez.Config = comptime .with(custom, .{ .prefix = "_" });
+const suffixed: casez.Config = comptime .with(custom, .{ .suffix = "_" });
 ```
 
 ## Detection
