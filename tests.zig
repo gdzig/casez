@@ -194,18 +194,18 @@ test "splits dictionary" {
 }
 
 test "prefix and suffix" {
-    const prefixed: Config = comptime .withPrefix(.snake, "_");
+    const prefixed: Config = comptime .with(.snake, .{ .prefix = "_" });
     try testing.expectEqualStrings("_hello_world", comptimeConvert(prefixed, "helloWorld"));
     try testing.expectEqualStrings("_hello", comptimeConvert(prefixed, "hello"));
 
-    const suffixed: Config = comptime .withSuffix(.snake, "_");
+    const suffixed: Config = comptime .with(.snake, .{ .suffix = "_" });
     try testing.expectEqualStrings("hello_world_", comptimeConvert(suffixed, "helloWorld"));
 
-    const both: Config = comptime .withPrefix(.withSuffix(.snake, "_"), "_");
+    const both: Config = comptime .with(.snake, .{ .prefix = "_", .suffix = "_" });
     try testing.expectEqualStrings("_hello_world_", comptimeConvert(both, "helloWorld"));
 
     // Prefix with camel case (for virtual methods like _someMethod)
-    const prefixed_camel: Config = comptime .withPrefix(.camel, "_");
+    const prefixed_camel: Config = comptime .with(.camel, .{ .prefix = "_" });
     try testing.expectEqualStrings("_someMethod", comptimeConvert(prefixed_camel, "some_method"));
     try testing.expectEqualStrings("_enterTree", comptimeConvert(prefixed_camel, "enter_tree"));
 }
@@ -213,7 +213,7 @@ test "prefix and suffix" {
 test "detection" {
     try testing.expect(casez.is(.snake, "hello_world"));
     try testing.expect(!casez.is(.snake, "_private")); // leading underscore requires prefix
-    try testing.expect(casez.is(.withPrefix(.snake, "_"), "_private")); // with prefix it works
+    try testing.expect(casez.is(.with(.snake, .{ .prefix = "_" }), "_private")); // with prefix it works
     try testing.expect(!casez.is(.snake, "helloWorld"));
     try testing.expect(!casez.is(.snake, "HelloWorld"));
 
@@ -283,7 +283,7 @@ test "writeConvert" {
 
     // Test with prefix
     w = std.Io.Writer.fixed(&buf);
-    try writeConvert(&w, .withPrefix(.snake, "_"), "helloWorld");
+    try writeConvert(&w, .with(.snake, .{ .prefix = "_" }), "helloWorld");
     try testing.expectEqualStrings("_hello_world", w.buffered());
 }
 

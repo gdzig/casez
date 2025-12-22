@@ -542,65 +542,12 @@ pub const Config = struct {
     pub const kebab: Config = .{ .first = .lower, .rest = .lower, .acronym = .lower, .delimiter = "-" };
     pub const title: Config = .{ .first = .title, .rest = .title, .acronym = .title, .delimiter = " " };
 
-    pub fn withDictionary(base: Config, dictionary: Dictionary) Config {
-        return .{
-            .first = base.first,
-            .rest = base.rest,
-            .acronym = base.acronym,
-            .delimiter = base.delimiter,
-            .prefix = base.prefix,
-            .suffix = base.suffix,
-            .dictionary = dictionary,
-        };
-    }
-
-    pub fn withPrefix(base: Config, prefix: []const u8) Config {
-        return .{
-            .first = base.first,
-            .rest = base.rest,
-            .acronym = base.acronym,
-            .delimiter = base.delimiter,
-            .prefix = prefix,
-            .suffix = base.suffix,
-            .dictionary = base.dictionary,
-        };
-    }
-
-    pub fn withSuffix(base: Config, suffix: []const u8) Config {
-        return .{
-            .first = base.first,
-            .rest = base.rest,
-            .acronym = base.acronym,
-            .delimiter = base.delimiter,
-            .prefix = base.prefix,
-            .suffix = suffix,
-            .dictionary = base.dictionary,
-        };
-    }
-
-    pub fn withAcronym(base: Config, acronym: Case) Config {
-        return .{
-            .first = base.first,
-            .rest = base.rest,
-            .acronym = acronym,
-            .delimiter = base.delimiter,
-            .prefix = base.prefix,
-            .suffix = base.suffix,
-            .dictionary = base.dictionary,
-        };
-    }
-
-    pub fn withDigitBoundary(base: Config, digit_boundary: bool) Config {
-        return .{
-            .first = base.first,
-            .rest = base.rest,
-            .acronym = base.acronym,
-            .delimiter = base.delimiter,
-            .prefix = base.prefix,
-            .suffix = base.suffix,
-            .dictionary = base.dictionary,
-            .digit_boundary = digit_boundary,
-        };
+    pub fn with(base: Config, overrides: anytype) Config {
+        var new = base;
+        inline for (std.meta.fields(@TypeOf(overrides))) |field| {
+            @field(new, field.name) = @field(overrides, field.name);
+        }
+        return new;
     }
 };
 
