@@ -589,6 +589,19 @@ pub const Config = struct {
             .dictionary = base.dictionary,
         };
     }
+
+    pub fn withDigitBoundary(base: Config, digit_boundary: bool) Config {
+        return .{
+            .first = base.first,
+            .rest = base.rest,
+            .acronym = base.acronym,
+            .delimiter = base.delimiter,
+            .prefix = base.prefix,
+            .suffix = base.suffix,
+            .dictionary = base.dictionary,
+            .digit_boundary = digit_boundary,
+        };
+    }
 };
 
 // Detection
