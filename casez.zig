@@ -544,8 +544,15 @@ pub const Config = struct {
 
     pub fn with(base: Config, overrides: anytype) Config {
         var new = base;
-        inline for (std.meta.fields(@TypeOf(overrides))) |field| {
-            @field(new, field.name) = @field(overrides, field.name);
+        const override_info = @typeInfo(@TypeOf(overrides)).@"struct";
+        if (@hasField(@TypeOf(override_info), "fields")) {
+            inline for (override_info.fields) |field| {
+                @field(new, field.name) = @field(overrides, field.name);
+            }
+        } else {
+            inline for (override_info.field_names) |field_name| {
+                @field(new, field_name) = @field(overrides, field_name);
+            }
         }
         return new;
     }
